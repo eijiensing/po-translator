@@ -36,6 +36,11 @@ type UploadedFile = {
 	isSource: boolean;
 };
 
+type UploadState =
+	| { status: "idle" }
+	| { status: "review_conflicts"; conflicts: PoFileStore[]; newFiles: PoFileStore[] }
+	| { status: "saving" };
+
 function Home() {
 	const [files, setFiles] = useState<UploadedFile[]>([]);
 	const [calculationResult, setCalculationResult] = useState<ReturnType<
@@ -43,10 +48,9 @@ function Home() {
 	> | null>(null);
 	const [dragging, setDragging] = useState(false);
 	const [openedDialog, setOpenedDialog] = useState<string | null>(null);
-	const [conflicts, setConflicts] = useState<PoFileStore[]>([]);
-	const [pendingFiles, setPendingFiles] = useState<PoFileStore[]>([]);
-	const [resolveOverwrite, setResolveOverwrite] =
-		useState<(v: boolean) => void>();
+	const [uploadState, setUploadState] = useState<UploadState>({
+		status: "idle",
+	});
 
 	const sourceChosen = files.some((f) => f.isSource);
 
@@ -67,12 +71,6 @@ function Home() {
 
 		load();
 	}, []);
-
-	const askOverwrite = () => {
-		return new Promise<boolean>((resolve) => {
-			setResolveOverwrite(() => resolve);
-		});
-	};
 
 	const recalculate = async () => {
 		const stores = await loadAllPoFiles();
@@ -113,53 +111,80 @@ function Home() {
 		await recalculate();
 	};
 
+	const saveFiles = async (filesToSave: PoFileStore[]) => {
+		for (const f of filesToSave) {
+			await savePoFile(f);
+		}
+
+		setOpenedDialog(null);
+
+		setFiles(prev => {
+			const map = new Map(prev.map(f => [f.language, f]))
+
+			for (const r of filesToSave) {
+				map.set(r.language, {
+
+					name: `${r.language}.po`,
+					language: r.language,
+					isSource: r.isSource,
+				})
+			}
+
+			return Array.from(map.values())
+		})
+
+		await recalculate();
+	};
+
 	const handleUpload = async (fileList: FileList | null) => {
 		if (!fileList) return;
 
 		const newFiles: PoFileStore[] = [];
-		const conflicting: PoFileStore[] = [];
+		const conflicts: PoFileStore[] = [];
 
 		for (const file of Array.from(fileList)) {
 			const text = await file.text();
 			const poFileStore = parsePo(text);
 
 			if (files.some((f) => f.language === poFileStore.language)) {
-				conflicting.push(poFileStore);
+				conflicts.push(poFileStore);
 			} else {
 				newFiles.push(poFileStore);
 			}
 		}
 
-		// save non-conflicting immediately
-		for (const f of newFiles) {
-			await savePoFile(f);
+		// If conflicts exist → go to state machine step
+		if (conflicts.length > 0) {
+			setUploadState({
+				status: "review_conflicts",
+				conflicts,
+				newFiles,
+			});
+			return;
 		}
 
-		if (conflicting.length > 0) {
-			setConflicts(conflicting);
-
-			const shouldOverwrite = await askOverwrite();
-
-			if (shouldOverwrite) {
-				for (const f of conflicting) {
-					await savePoFile(f);
-				}
-			}
-		}
-
-		// update UI
-		await recalculate();
+		// otherwise just save directly
+		await saveFiles(newFiles);
 	};
 
 	return (
 		<div className="p-8 max-w-3xl mx-auto space-y-6">
-			<Dialog open={conflicts.length > 0}>
+			<Dialog
+				open={uploadState.status === "review_conflicts"}
+				onOpenChange={(open) => {
+					if (!open) {
+						setUploadState({ status: "idle" });
+					}
+				}}
+			>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Overwrite files?</DialogTitle>
 						<DialogDescription>
 							These languages already exist:{" "}
-							{conflicts.map((f) => f.language).join(", ")}
+							{uploadState.status === "review_conflicts"
+								? uploadState.conflicts.map((f) => f.language).join(", ")
+								: ""}
 						</DialogDescription>
 					</DialogHeader>
 
@@ -167,17 +192,23 @@ function Home() {
 						<Button
 							variant="outline"
 							onClick={() => {
-								resolveOverwrite?.(false);
-								setConflicts([]);
+								setUploadState({ status: "idle" });
 							}}
 						>
 							Cancel
 						</Button>
 
 						<Button
-							onClick={() => {
-								resolveOverwrite?.(true);
-								setConflicts([]);
+							onClick={async () => {
+								if (uploadState.status !== "review_conflicts") return;
+
+								const { conflicts, newFiles } = uploadState;
+
+								setUploadState({ status: "saving" });
+
+								await saveFiles([...newFiles, ...conflicts]);
+
+								setUploadState({ status: "idle" });
 							}}
 						>
 							Overwrite
@@ -203,11 +234,10 @@ function Home() {
         flex flex-col items-center justify-center
         w-full p-6 rounded-xl border-2 border-dashed
         cursor-pointer transition
-        ${
-					dragging
-						? "border-purple-500 bg-purple-500/10"
-						: "border-accent bg-secondary/10 hover:bg-secondary/20"
-				}
+        ${dragging
+							? "border-purple-500 bg-purple-500/10"
+							: "border-accent bg-secondary/10 hover:bg-secondary/20"
+						}
       `}
 				>
 					<input

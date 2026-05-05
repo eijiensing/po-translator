@@ -32,6 +32,7 @@
     "tw-animate-css": "^1.3.6"
   },
   "devDependencies": {
+    "@azure/static-web-apps-cli": "^2.0.7",
     "@biomejs/biome": "2.4.5",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",

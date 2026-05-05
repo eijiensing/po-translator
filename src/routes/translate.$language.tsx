@@ -10,7 +10,6 @@ import {
 	FieldLabel,
 	FieldTitle,
 } from "#/components/ui/field";
-import { Input } from "#/components/ui/input";
 import { ScrollArea, ScrollBar } from "#/components/ui/scroll-area";
 import { Switch } from "#/components/ui/switch";
 import { Textarea } from "#/components/ui/textarea";
@@ -39,9 +38,8 @@ function RouteComponent() {
 	const [targetStore, setTargetStore] = useState<any>(null);
 
 	useEffect(() => {
-		if (!inputRef.current) return;
-		inputRef.current.focus();
-	}, []);
+		inputRef.current?.focus();
+	}, [index]);
 
 	// LOAD
 	useEffect(() => {
