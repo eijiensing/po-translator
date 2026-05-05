@@ -1,12 +1,13 @@
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
-import { loadAllPoFiles, deletePoFile, parsePo, savePoFile, getAllTranslationPercentages, exportPoFile, downloadFile } from '#/lib/utils'
+import { loadAllPoFiles, deletePoFile, parsePo, savePoFile, getAllTranslationPercentages, exportPoFile, downloadFile, type PoFileStore } from '#/lib/utils'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useEffect } from 'react'
-import { X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { Field, FieldLabel } from '#/components/ui/field'
 import { Progress } from '#/components/ui/progress'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '#/components/ui/dialog'
 
 export const Route = createFileRoute('/')({
 	component: Home,
@@ -21,6 +22,13 @@ type UploadedFile = {
 function Home() {
 	const [files, setFiles] = useState<UploadedFile[]>([])
 	const [calculationResult, setCalculationResult] = useState<ReturnType<typeof getAllTranslationPercentages> | null>(null)
+	const [dragging, setDragging] = useState(false);
+	const [openedDialog, setOpenedDialog] = useState<string | null>(null);
+	const [conflicts, setConflicts] = useState<PoFileStore[]>([]);
+	const [pendingFiles, setPendingFiles] = useState<PoFileStore[]>([]);
+	const [resolveOverwrite, setResolveOverwrite] = useState<(v: boolean) => void>();
+
+	const sourceChosen = files.some((f) => f.isSource)
 
 	useEffect(() => {
 		const load = async () => {
@@ -39,6 +47,14 @@ function Home() {
 
 		load()
 	}, [])
+
+
+	const askOverwrite = () => {
+		return new Promise<boolean>((resolve) => {
+			setResolveOverwrite(() => resolve);
+		});
+	};
+
 
 	const recalculate = async () => {
 		const stores = await loadAllPoFiles()
@@ -79,53 +95,115 @@ function Home() {
 		await recalculate()
 	}
 
-	const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-		const fileList = e.target.files
-		if (!fileList) return
+	const handleUpload = async (fileList: FileList | null) => {
+		if (!fileList) return;
 
-		const results: UploadedFile[] = []
+		const newFiles: PoFileStore[] = [];
+		const conflicting: PoFileStore[] = [];
 
 		for (const file of Array.from(fileList)) {
-			const text = await file.text()
-			const poFileStore = parsePo(text)
+			const text = await file.text();
+			const poFileStore = parsePo(text);
 
-			await savePoFile(poFileStore)
-
-			results.push({
-				name: file.name,
-				language: poFileStore.language,
-				isSource: poFileStore.isSource,
-			})
+			if (files.some(f => f.language === poFileStore.language)) {
+				conflicting.push(poFileStore);
+			} else {
+				newFiles.push(poFileStore);
+			}
 		}
 
-		setFiles(prev => {
-			const map = new Map(prev.map(f => [f.language, f]))
+		// save non-conflicting immediately
+		for (const f of newFiles) {
+			await savePoFile(f);
+		}
 
-			for (const r of results) {
-				map.set(r.language, r)
+		if (conflicting.length > 0) {
+			setConflicts(conflicting);
+
+			const shouldOverwrite = await askOverwrite();
+
+			if (shouldOverwrite) {
+				for (const f of conflicting) {
+					await savePoFile(f);
+				}
 			}
+		}
 
-			return Array.from(map.values())
-		})
-
-		await recalculate()
-
-		e.target.value = ''
-	}
+		// update UI
+		await recalculate();
+	};
 
 	return (
 		<div className="p-8 max-w-3xl mx-auto space-y-6">
+			<Dialog open={conflicts.length > 0}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Overwrite files?</DialogTitle>
+						<DialogDescription>
+							These languages already exist:{" "}
+							{conflicts.map(f => f.language).join(", ")}
+						</DialogDescription>
+					</DialogHeader>
+
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => {
+								resolveOverwrite?.(false);
+								setConflicts([]);
+							}}
+						>
+							Cancel
+						</Button>
+
+						<Button
+							onClick={() => {
+								resolveOverwrite?.(true);
+								setConflicts([]);
+							}}
+						>
+							Overwrite
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			<h1 className="text-3xl font-bold">Upload .po files</h1>
 
 			<div className="">
-				<input
-					type="file"
-					accept=".po"
-					multiple
-					onChange={handleUpload}
-					className="mb-4 border-2 border-accent border-dashed rounded-xl p-6 text-center"
-					placeholder="YI"
-				/>
+				<label
+					onDragOver={(e) => {
+						e.preventDefault();
+						setDragging(true);
+					}}
+					onDragLeave={() => setDragging(false)}
+					onDrop={(e) => {
+						e.preventDefault();
+						setDragging(false);
+						handleUpload(e.dataTransfer.files);
+					}}
+					className={`
+        flex flex-col items-center justify-center
+        w-full p-6 rounded-xl border-2 border-dashed
+        cursor-pointer transition
+        ${dragging
+							? "border-purple-500 bg-purple-500/10"
+							: "border-accent bg-secondary/10 hover:bg-secondary/20"}
+      `}
+				>
+					<input
+						type="file"
+						accept=".po"
+						multiple
+						onChange={(e) => handleUpload(e.target.files)}
+						className="hidden"
+					/>
+
+					<span className="text-sm text-gray-600">
+						{dragging
+							? "Drop files here"
+							: "Browse files or drag & drop"}
+					</span>
+				</label>
 
 				<p className="text-sm text-muted-foreground">
 					Upload one or more .po files
@@ -161,27 +239,53 @@ function Home() {
 									</div>
 
 									<div className="flex flex-row gap-x-4 items-center">
-										{!file.isSource && (
+										{!file.isSource && sourceChosen && (
 											<>
-												<Button className="cursor-pointer text-background" onClick={(e) => {
-													e.preventDefault();
-													e.stopPropagation();
-													handleDownload(file.language)
-												}}>download</Button>
-												<Field className="w-full max-w-sm">
+												<Field className="w-full max-w-sm gap-2">
 													<FieldLabel htmlFor="progress-translation">
 														<span>Translation percentage</span>
 														<span className="ml-auto">{calculationPercentage}%</span>
 													</FieldLabel>
 													<Progress value={calculationPercentage} id="progress-translation" />
 												</Field>
+												<Button className="cursor-pointer text-background" onClick={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													handleDownload(file.language)
+												}}><Download /></Button>
 											</>
 										)}
-										<Button className="cursor-pointer" variant="ghost" onClick={(e) => {
-											e.preventDefault();
-											e.stopPropagation();
-											handleRemove(file.language)
-										}}><X /></Button>
+
+										<Dialog open={openedDialog === file.language} onOpenChange={(v) => setOpenedDialog(v ? file.language : null)}>
+											<DialogTrigger asChild>
+												<Button
+													className="cursor-pointer"
+													variant="ghost"
+													onClick={(e) => {
+														e.preventDefault();
+														e.stopPropagation();
+														setOpenedDialog(file.language)
+													}}
+												>
+													<X />
+												</Button>
+											</DialogTrigger>
+											<DialogContent
+												onClick={(e) => e.stopPropagation()}
+											>
+												<DialogHeader>
+													<DialogTitle>Are you sure?</DialogTitle>
+													<DialogDescription>If you did not download the file all translation progress will be lost!</DialogDescription>
+												</DialogHeader>
+												<DialogFooter>
+													<DialogClose asChild>
+														<Button variant="outline">Cancel</Button>
+													</DialogClose>
+													<Button onClick={() => handleRemove(file.language)
+													}>Remove</Button>
+												</DialogFooter>
+											</DialogContent>
+										</Dialog>
 									</div>
 								</Link>
 							)

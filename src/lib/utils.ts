@@ -236,7 +236,12 @@ export function getAllTranslationPercentages(files: PoFileStore[]) {
 	const source = files.find(f => f.isSource)
 
 	if (!source) {
-		throw new Error('No source file defined')
+		return files.map(f => {
+			return {
+				language: f.language,
+				percentage: 0,
+			}
+		})
 	}
 
 	return files.map(file => {
