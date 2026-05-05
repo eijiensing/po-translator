@@ -12,7 +12,8 @@
     "test": "vitest run",
     "format": "biome format",
     "lint": "biome lint",
-    "check": "biome check"
+    "check": "biome check",
+    "upload": "read -p 'Enter deployment token: ' token && pnpm exec swa deploy --app-location . --output-location dist --env production --deployment-token $token"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",

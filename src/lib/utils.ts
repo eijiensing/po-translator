@@ -1,315 +1,312 @@
-import type { ClassValue } from 'clsx'
-import { clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
-import { set, get } from 'idb-keyval'
+import type { ClassValue } from "clsx";
+import { clsx } from "clsx";
+import { get, set } from "idb-keyval";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs))
+	return twMerge(clsx(inputs));
 }
 
 export type PoEntry = {
-	id: string
-	value: string
-	comments?: string[]
-	references?: string[]
-	flags?: string[]
-}
+	id: string;
+	value: string;
+	comments?: string[];
+	references?: string[];
+	flags?: string[];
+};
 
 export type PoFileStore = {
-	isSource: boolean
-	language: string
-	headers: Record<string, string>
-	entries: Record<string, PoEntry>
-}
+	isSource: boolean;
+	language: string;
+	headers: Record<string, string>;
+	entries: Record<string, PoEntry>;
+};
 
 export function parsePo(content: string): PoFileStore {
-	const lines = content.split('\n')
-	const headersRaw: string[] = []
-	let inHeader = false
-	let headerDone = false
-	const entries: PoFileStore['entries'] = {}
-	let currentId = ''
-	let currentStr = ''
-	let currentComments: string[] = []
-	let currentRefs: string[] = []
-	let currentFlags: string[] = []
-	let readingMsgStr = false
-	let pendingComments: string[] = []
-	let pendingRefs: string[] = []
-	let pendingFlags: string[] = []
-	let skippingObsolete = false
+	const lines = content.split("\n");
+	const headersRaw: string[] = [];
+	let inHeader = false;
+	let headerDone = false;
+	const entries: PoFileStore["entries"] = {};
+	let currentId = "";
+	let currentStr = "";
+	let currentComments: string[] = [];
+	let currentRefs: string[] = [];
+	let currentFlags: string[] = [];
+	let readingMsgStr = false;
+	let pendingComments: string[] = [];
+	let pendingRefs: string[] = [];
+	let pendingFlags: string[] = [];
+	let skippingObsolete = false;
 
 	function clearPending() {
-		pendingComments = []
-		pendingRefs = []
-		pendingFlags = []
+		pendingComments = [];
+		pendingRefs = [];
+		pendingFlags = [];
 	}
 
 	function flushEntry() {
-		if (!currentId) return
+		if (!currentId) return;
 		entries[currentId] = {
 			id: currentId,
 			value: currentStr,
 			flags: currentFlags.length ? [...currentFlags] : undefined,
 			references: currentRefs.length ? [...currentRefs] : undefined,
 			comments: currentComments.length ? [...currentComments] : undefined,
-		}
-		currentId = ''
-		currentStr = ''
-		currentComments = []
-		currentRefs = []
-		currentFlags = []
+		};
+		currentId = "";
+		currentStr = "";
+		currentComments = [];
+		currentRefs = [];
+		currentFlags = [];
 	}
 
 	for (let i = 0; i < lines.length; i++) {
-		const raw = lines[i]
-		const line = raw.trim()
+		const raw = lines[i];
+		const line = raw.trim();
 
 		// ── Blank line: natural entry separator, always exit obsolete mode ──
-		if (line === '') {
-			skippingObsolete = false
-			continue
+		if (line === "") {
+			skippingObsolete = false;
+			continue;
 		}
 
 		// ── Obsolete lines (#~ ...) ──────────────────────────────────────────
-		if (line.startsWith('#~')) {
+		if (line.startsWith("#~")) {
 			if (!skippingObsolete) {
-				clearPending()
-				skippingObsolete = true
+				clearPending();
+				skippingObsolete = true;
 			}
-			continue
+			continue;
 		}
 
-		if (skippingObsolete) continue
+		if (skippingObsolete) continue;
 
 		// ── Comments / metadata ──────────────────────────────────────────────
-		if (line.startsWith('#.')) {
-			pendingComments.push(line.slice(2).trim())
-			continue
+		if (line.startsWith("#.")) {
+			pendingComments.push(line.slice(2).trim());
+			continue;
 		}
-		if (line.startsWith('#,')) {
-			pendingFlags.push(line.slice(2).trim())
-			continue
+		if (line.startsWith("#,")) {
+			pendingFlags.push(line.slice(2).trim());
+			continue;
 		}
-		if (line.startsWith('#:')) {
-			pendingRefs.push(line.slice(2).trim())
-			continue
+		if (line.startsWith("#:")) {
+			pendingRefs.push(line.slice(2).trim());
+			continue;
 		}
-		if (line.startsWith('#')) {
-			pendingComments.push(line.slice(1).trim())
-			continue
+		if (line.startsWith("#")) {
+			pendingComments.push(line.slice(1).trim());
+			continue;
 		}
 
 		// ── Header block (first msgid "" only) ──────────────────────────────
 		if (!headerDone && line === 'msgid ""') {
-			inHeader = true
-			continue
+			inHeader = true;
+			continue;
 		}
 		if (inHeader) {
 			if (line.startsWith('"')) {
-				headersRaw.push(line)
-				continue
+				headersRaw.push(line);
+				continue;
 			}
-			if (line === 'msgstr ""') continue
-			inHeader = false
-			headerDone = true
+			if (line === 'msgstr ""') continue;
+			inHeader = false;
+			headerDone = true;
 			// fall through to process this line normally
 		}
 
 		// ── Entry start ──────────────────────────────────────────────────────
-		if (line.startsWith('msgid ')) {
-			flushEntry()
-			currentComments = [...pendingComments]
-			currentRefs = [...pendingRefs]
-			currentFlags = [...pendingFlags]
-			clearPending()
-			currentId = stripQuotes(line.slice(6))
-			currentStr = ''
-			readingMsgStr = false
-			continue
+		if (line.startsWith("msgid ")) {
+			flushEntry();
+			currentComments = [...pendingComments];
+			currentRefs = [...pendingRefs];
+			currentFlags = [...pendingFlags];
+			clearPending();
+			currentId = stripQuotes(line.slice(6));
+			currentStr = "";
+			readingMsgStr = false;
+			continue;
 		}
-		if (line.startsWith('msgstr ')) {
-			currentStr = stripQuotes(line.slice(7))
-			readingMsgStr = true
-			continue
+		if (line.startsWith("msgstr ")) {
+			currentStr = stripQuotes(line.slice(7));
+			readingMsgStr = true;
+			continue;
 		}
 
 		// ── Multiline continuation ───────────────────────────────────────────
 		if (line.startsWith('"')) {
-			const val = stripQuotes(line)
+			const val = stripQuotes(line);
 			if (readingMsgStr) {
-				currentStr += val
+				currentStr += val;
 			} else if (currentId) {
-				currentId += val
+				currentId += val;
 			}
 		}
 	}
 
-	flushEntry()
-	const headers = parseHeaders(headersRaw)
+	flushEntry();
+	const headers = parseHeaders(headersRaw);
 	return {
 		isSource: false,
-		language: headers.Language || 'unknown',
+		language: headers.Language || "unknown",
 		headers,
 		entries,
-	}
+	};
 }
 
 function stripQuotes(str: string) {
-	return str.replace(/^"/, '').replace(/"$/, '')
+	return str.replace(/^"/, "").replace(/"$/, "");
 }
 
 function parseHeaders(lines: string[]) {
-	const result: Record<string, string> = {}
+	const result: Record<string, string> = {};
 
-	const joined = lines.join('\n')
+	const joined = lines.join("\n");
 
-	const matches = joined.matchAll(/"([^:]+):\s*(.*?)\\n"/g)
+	const matches = joined.matchAll(/"([^:]+):\s*(.*?)\\n"/g);
 
 	for (const m of matches) {
-		result[m[1]] = m[2]
+		result[m[1]] = m[2];
 	}
 
-	return result
+	return result;
 }
 
-const REGISTRY_KEY = 'po:registry'
+const REGISTRY_KEY = "po:registry";
 
-export const getPoFile = (lang: string) =>
-	get<PoFileStore>(`po:${lang}`)
+export const getPoFile = (lang: string) => get<PoFileStore>(`po:${lang}`);
 
 export const savePoFile = async (store: PoFileStore) => {
-	await set(`po:${store.language}`, store)
+	await set(`po:${store.language}`, store);
 
-	const registry = (await get<string[]>(REGISTRY_KEY)) ?? []
+	const registry = (await get<string[]>(REGISTRY_KEY)) ?? [];
 
 	if (!registry.includes(store.language)) {
-		registry.push(store.language)
-		await set(REGISTRY_KEY, registry)
+		registry.push(store.language);
+		await set(REGISTRY_KEY, registry);
 	}
-}
+};
 
 export const deletePoFile = async (lang: string) => {
-	const { del } = await import('idb-keyval')
+	const { del } = await import("idb-keyval");
 
-	await del(`po:${lang}`)
+	await del(`po:${lang}`);
 
-	const registry = (await get<string[]>(REGISTRY_KEY)) ?? []
+	const registry = (await get<string[]>(REGISTRY_KEY)) ?? [];
 	await set(
 		REGISTRY_KEY,
-		registry.filter(l => l !== lang)
-	)
-}
+		registry.filter((l) => l !== lang),
+	);
+};
 
 export const loadAllPoFiles = async (): Promise<PoFileStore[]> => {
-	const registry = (await get<string[]>(REGISTRY_KEY)) ?? []
+	const registry = (await get<string[]>(REGISTRY_KEY)) ?? [];
 
-	const files = await Promise.all(
-		registry.map(lang => getPoFile(lang))
-	)
+	const files = await Promise.all(registry.map((lang) => getPoFile(lang)));
 
-	return files.filter(Boolean) as PoFileStore[]
-}
+	return files.filter(Boolean) as PoFileStore[];
+};
 
 export function getTranslationPercentage(
 	source: PoFileStore,
-	target: PoFileStore
+	target: PoFileStore,
 ): number {
-	const sourceEntries = Object.values(source.entries)
+	const sourceEntries = Object.values(source.entries);
 
-	if (sourceEntries.length === 0) return 0
+	if (sourceEntries.length === 0) return 0;
 
-	let translated = 0
+	let translated = 0;
 
 	for (const entry of sourceEntries) {
-		const targetEntry = target.entries[entry.id]
+		const targetEntry = target.entries[entry.id];
 
-		if (targetEntry && targetEntry.value !== '') {
-			translated++
+		if (targetEntry && targetEntry.value !== "") {
+			translated++;
 		}
 	}
 
-	return (translated / sourceEntries.length) * 100
+	return (translated / sourceEntries.length) * 100;
 }
 
 export function getAllTranslationPercentages(files: PoFileStore[]) {
-	const source = files.find(f => f.isSource)
+	const source = files.find((f) => f.isSource);
 
 	if (!source) {
-		return files.map(f => {
+		return files.map((f) => {
 			return {
 				language: f.language,
 				percentage: 0,
-			}
-		})
+			};
+		});
 	}
 
-	return files.map(file => {
+	return files.map((file) => {
 		if (file.language === source.language) {
 			return {
 				language: file.language,
 				percentage: 100,
-			}
+			};
 		}
 
 		return {
 			language: file.language,
 			percentage: getTranslationPercentage(source, file),
-		}
-	})
+		};
+	});
 }
 
 function formatEntry(e: PoEntry) {
-	const parts: string[] = []
+	const parts: string[] = [];
 
 	if (e.comments?.length) {
 		for (const c of e.comments) {
-			parts.push(`#. ${c}`)
+			parts.push(`#. ${c}`);
 		}
 	}
 
 	if (e.flags?.length) {
 		for (const f of e.flags) {
-			parts.push(`#, ${f}`)
+			parts.push(`#, ${f}`);
 		}
 	}
 
 	if (e.references?.length) {
 		for (const ref of e.references) {
-			parts.push(`#: ${ref}`)
+			parts.push(`#: ${ref}`);
 		}
 	}
 
-	parts.push(`msgid "${e.id}"`)
-	parts.push(`msgstr "${e.value || ''}"`)
-	return parts.join('\n')
+	parts.push(`msgid "${e.id}"`);
+	parts.push(`msgstr "${e.value || ""}"`);
+	return parts.join("\n");
 }
 
 export async function exportPoFile(language: string) {
-	const store = await getPoFile(language)
-	if (!store) return null
+	const store = await getPoFile(language);
+	if (!store) return null;
 
-	const headers = store.headers ?? {}
+	const headers = store.headers ?? {};
 	const headerBlock =
 		Object.entries(headers)
 			.map(([k, v]) => `"${k}: ${v}\\n"`)
-			.join('\n') || ''
+			.join("\n") || "";
 
 	const body = Object.values(store.entries || {})
 		.map(formatEntry)
-		.join('\n\n')
+		.join("\n\n");
 
-	return `msgid ""\nmsgstr ""\n${headerBlock}\n\n${body}\n`
+	return `msgid ""\nmsgstr ""\n${headerBlock}\n\n${body}\n`;
 }
 
 export function downloadFile(filename: string, content: string) {
-	const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-	const url = URL.createObjectURL(blob)
+	const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+	const url = URL.createObjectURL(blob);
 
-	const a = document.createElement('a')
-	a.href = url
-	a.download = filename
-	a.click()
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	a.click();
 
-	URL.revokeObjectURL(url)
+	URL.revokeObjectURL(url);
 }

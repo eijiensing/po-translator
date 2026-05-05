@@ -1,53 +1,72 @@
-import { Badge } from '#/components/ui/badge'
-import { Button } from '#/components/ui/button'
-import { loadAllPoFiles, deletePoFile, parsePo, savePoFile, getAllTranslationPercentages, exportPoFile, downloadFile, type PoFileStore } from '#/lib/utils'
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState } from 'react'
-import { useEffect } from 'react'
-import { Download, X } from 'lucide-react';
-import { Field, FieldLabel } from '#/components/ui/field'
-import { Progress } from '#/components/ui/progress'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '#/components/ui/dialog'
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Download, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "#/components/ui/dialog";
+import { Field, FieldLabel } from "#/components/ui/field";
+import { Progress } from "#/components/ui/progress";
+import {
+	deletePoFile,
+	downloadFile,
+	exportPoFile,
+	getAllTranslationPercentages,
+	loadAllPoFiles,
+	type PoFileStore,
+	parsePo,
+	savePoFile,
+} from "#/lib/utils";
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
 	component: Home,
-})
+});
 
 type UploadedFile = {
-	name: string,
-	language: string,
-	isSource: boolean
-}
+	name: string;
+	language: string;
+	isSource: boolean;
+};
 
 function Home() {
-	const [files, setFiles] = useState<UploadedFile[]>([])
-	const [calculationResult, setCalculationResult] = useState<ReturnType<typeof getAllTranslationPercentages> | null>(null)
+	const [files, setFiles] = useState<UploadedFile[]>([]);
+	const [calculationResult, setCalculationResult] = useState<ReturnType<
+		typeof getAllTranslationPercentages
+	> | null>(null);
 	const [dragging, setDragging] = useState(false);
 	const [openedDialog, setOpenedDialog] = useState<string | null>(null);
 	const [conflicts, setConflicts] = useState<PoFileStore[]>([]);
 	const [pendingFiles, setPendingFiles] = useState<PoFileStore[]>([]);
-	const [resolveOverwrite, setResolveOverwrite] = useState<(v: boolean) => void>();
+	const [resolveOverwrite, setResolveOverwrite] =
+		useState<(v: boolean) => void>();
 
-	const sourceChosen = files.some((f) => f.isSource)
+	const sourceChosen = files.some((f) => f.isSource);
 
 	useEffect(() => {
 		const load = async () => {
-			const stores = await loadAllPoFiles()
+			const stores = await loadAllPoFiles();
 
-			setCalculationResult(getAllTranslationPercentages(stores))
+			setCalculationResult(getAllTranslationPercentages(stores));
 
 			setFiles(
-				stores.map(s => ({
+				stores.map((s) => ({
 					name: `${s.language}.po`,
 					language: s.language,
 					isSource: s.isSource,
-				}))
-			)
-		}
+				})),
+			);
+		};
 
-		load()
-	}, [])
-
+		load();
+	}, []);
 
 	const askOverwrite = () => {
 		return new Promise<boolean>((resolve) => {
@@ -55,45 +74,44 @@ function Home() {
 		});
 	};
 
-
 	const recalculate = async () => {
-		const stores = await loadAllPoFiles()
-		setCalculationResult(getAllTranslationPercentages(stores))
-	}
+		const stores = await loadAllPoFiles();
+		setCalculationResult(getAllTranslationPercentages(stores));
+	};
 
 	const handleDownload = async (language: string) => {
-		const content = await exportPoFile(language)
-		if (content === null) { return }
-		downloadFile("messages.po", content)
-	}
+		const content = await exportPoFile(language);
+		if (content === null) {
+			return;
+		}
+		downloadFile("messages.po", content);
+	};
 
 	const handleRemove = async (language: string) => {
-		await deletePoFile(language)
+		await deletePoFile(language);
 
-		setFiles(prev =>
-			prev.filter(f => f.language !== language)
-		)
+		setFiles((prev) => prev.filter((f) => f.language !== language));
 
-		await recalculate()
-	}
+		await recalculate();
+	};
 
 	const markAsSource = async (language: string) => {
-		const stores = await loadAllPoFiles()
+		const stores = await loadAllPoFiles();
 
 		for (const store of stores) {
-			store.isSource = store.language === language
-			await savePoFile(store)
+			store.isSource = store.language === language;
+			await savePoFile(store);
 		}
 
-		setFiles(prev =>
-			prev.map(f => ({
+		setFiles((prev) =>
+			prev.map((f) => ({
 				...f,
 				isSource: f.language === language,
-			}))
-		)
+			})),
+		);
 
-		await recalculate()
-	}
+		await recalculate();
+	};
 
 	const handleUpload = async (fileList: FileList | null) => {
 		if (!fileList) return;
@@ -105,7 +123,7 @@ function Home() {
 			const text = await file.text();
 			const poFileStore = parsePo(text);
 
-			if (files.some(f => f.language === poFileStore.language)) {
+			if (files.some((f) => f.language === poFileStore.language)) {
 				conflicting.push(poFileStore);
 			} else {
 				newFiles.push(poFileStore);
@@ -141,7 +159,7 @@ function Home() {
 						<DialogTitle>Overwrite files?</DialogTitle>
 						<DialogDescription>
 							These languages already exist:{" "}
-							{conflicts.map(f => f.language).join(", ")}
+							{conflicts.map((f) => f.language).join(", ")}
 						</DialogDescription>
 					</DialogHeader>
 
@@ -185,9 +203,11 @@ function Home() {
         flex flex-col items-center justify-center
         w-full p-6 rounded-xl border-2 border-dashed
         cursor-pointer transition
-        ${dragging
-							? "border-purple-500 bg-purple-500/10"
-							: "border-accent bg-secondary/10 hover:bg-secondary/20"}
+        ${
+					dragging
+						? "border-purple-500 bg-purple-500/10"
+						: "border-accent bg-secondary/10 hover:bg-secondary/20"
+				}
       `}
 				>
 					<input
@@ -199,9 +219,7 @@ function Home() {
 					/>
 
 					<span className="text-sm text-gray-600">
-						{dragging
-							? "Drop files here"
-							: "Browse files or drag & drop"}
+						{dragging ? "Drop files here" : "Browse files or drag & drop"}
 					</span>
 				</label>
 
@@ -216,11 +234,16 @@ function Home() {
 
 					<div className="space-y-2">
 						{files.map((file, i) => {
-							const calculationPercentage = Math.round((calculationResult ?? []).find((cr) => cr.language === file.language)?.percentage ?? 0)
+							const calculationPercentage = Math.round(
+								(calculationResult ?? []).find(
+									(cr) => cr.language === file.language,
+								)?.percentage ?? 0,
+							);
 							return (
 								<Link
 									key={i}
-									className={`pl-4 pr-2 py-2 rounded-lg border flex justify-between items-center ${file.isSource ? "" : "hover:border-primary duration-100"}`} to={'/translate/$language'}
+									className={`pl-4 pr-2 py-2 rounded-lg border flex justify-between items-center ${file.isSource ? "" : "hover:border-primary duration-100"}`}
+									to={"/translate/$language"}
 									disabled={file.isSource}
 									params={{ language: file.language }}
 								>
@@ -230,11 +253,17 @@ function Home() {
 										{file.isSource ? (
 											<Badge className="text-background">source</Badge>
 										) : (
-											<Button className="text-xs px-2 py-1 cursor-pointer" variant="ghost" onClick={(e) => {
-												e.preventDefault();
-												e.stopPropagation();
-												markAsSource(file.language)
-											}}>Mark as source</Button>
+											<Button
+												className="text-xs px-2 py-1 cursor-pointer"
+												variant="ghost"
+												onClick={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													markAsSource(file.language);
+												}}
+											>
+												Mark as source
+											</Button>
 										)}
 									</div>
 
@@ -244,19 +273,34 @@ function Home() {
 												<Field className="w-full max-w-sm gap-2">
 													<FieldLabel htmlFor="progress-translation">
 														<span>Translation percentage</span>
-														<span className="ml-auto">{calculationPercentage}%</span>
+														<span className="ml-auto">
+															{calculationPercentage}%
+														</span>
 													</FieldLabel>
-													<Progress value={calculationPercentage} id="progress-translation" />
+													<Progress
+														value={calculationPercentage}
+														id="progress-translation"
+													/>
 												</Field>
-												<Button className="cursor-pointer text-background" onClick={(e) => {
-													e.preventDefault();
-													e.stopPropagation();
-													handleDownload(file.language)
-												}}><Download /></Button>
+												<Button
+													className="cursor-pointer text-background"
+													onClick={(e) => {
+														e.preventDefault();
+														e.stopPropagation();
+														handleDownload(file.language);
+													}}
+												>
+													<Download />
+												</Button>
 											</>
 										)}
 
-										<Dialog open={openedDialog === file.language} onOpenChange={(v) => setOpenedDialog(v ? file.language : null)}>
+										<Dialog
+											open={openedDialog === file.language}
+											onOpenChange={(v) =>
+												setOpenedDialog(v ? file.language : null)
+											}
+										>
 											<DialogTrigger asChild>
 												<Button
 													className="cursor-pointer"
@@ -264,35 +308,37 @@ function Home() {
 													onClick={(e) => {
 														e.preventDefault();
 														e.stopPropagation();
-														setOpenedDialog(file.language)
+														setOpenedDialog(file.language);
 													}}
 												>
 													<X />
 												</Button>
 											</DialogTrigger>
-											<DialogContent
-												onClick={(e) => e.stopPropagation()}
-											>
+											<DialogContent onClick={(e) => e.stopPropagation()}>
 												<DialogHeader>
 													<DialogTitle>Are you sure?</DialogTitle>
-													<DialogDescription>If you did not download the file all translation progress will be lost!</DialogDescription>
+													<DialogDescription>
+														If you did not download the file all translation
+														progress will be lost!
+													</DialogDescription>
 												</DialogHeader>
 												<DialogFooter>
 													<DialogClose asChild>
 														<Button variant="outline">Cancel</Button>
 													</DialogClose>
-													<Button onClick={() => handleRemove(file.language)
-													}>Remove</Button>
+													<Button onClick={() => handleRemove(file.language)}>
+														Remove
+													</Button>
 												</DialogFooter>
 											</DialogContent>
 										</Dialog>
 									</div>
 								</Link>
-							)
+							);
 						})}
 					</div>
 				</div>
 			)}
 		</div>
-	)
+	);
 }
