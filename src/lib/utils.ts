@@ -1,6 +1,6 @@
 import type { ClassValue } from "clsx";
 import { clsx } from "clsx";
-import { get, set } from "idb-keyval";
+import { get, set, del } from "idb-keyval";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -189,7 +189,6 @@ export const savePoFile = async (store: PoFileStore) => {
 };
 
 export const deletePoFile = async (lang: string) => {
-	const { del } = await import("idb-keyval");
 
 	await del(`po:${lang}`);
 
