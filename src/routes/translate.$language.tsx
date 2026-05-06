@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import clsx from "clsx";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import {
@@ -14,6 +14,7 @@ import { ScrollArea, ScrollBar } from "#/components/ui/scroll-area";
 import { Switch } from "#/components/ui/switch";
 import { Textarea } from "#/components/ui/textarea";
 import { loadAllPoFiles, savePoFile } from "#/lib/utils";
+import { Button } from "#/components/ui/button";
 
 export const Route = createFileRoute("/translate/$language")({
 	component: RouteComponent,
@@ -28,6 +29,7 @@ type Entry = {
 function RouteComponent() {
 	const { language } = Route.useParams();
 
+	const [dragging, setDragging] = useState(false);
 	const [entries, setEntries] = useState<Entry[]>([]);
 	const [sessionIds, setSessionIds] = useState<string[]>([]);
 	const [index, setIndex] = useState(0);
@@ -91,7 +93,10 @@ function RouteComponent() {
 	}
 
 	if (!current) {
-		return <div className="p-8">No messages</div>;
+		return <div className="p-8">
+			<p>No untranslated messages</p>
+			<Button onClick={() => setShowAll(true)}>Show all</Button>
+		</div>
 	}
 
 	// SAVE + NEXT
@@ -103,7 +108,7 @@ function RouteComponent() {
 			entries: {
 				...targetStore.entries,
 				[current.id]: {
-					id: current.id,
+					...targetStore.entries[current.id],
 					value,
 				},
 			},
@@ -131,6 +136,53 @@ function RouteComponent() {
 		}
 	};
 
+
+	const handleUpload = async (fileList: FileList | null) => {
+		if (!fileList) return;
+		const file = fileList[0];
+		if (!file) return;
+
+		const fileText = await file.text();
+		const json: { id: string; message: string }[] = JSON.parse(fileText);
+
+		// build updated entries map
+		const updatedEntries = { ...targetStore.entries };
+
+		for (const { id, message } of json) {
+			if (!message?.trim()) continue;
+
+			// only fill empty ones (same rule as before)
+			if (!updatedEntries[id]?.value?.trim()) {
+				updatedEntries[id] = {
+					...updatedEntries[id],
+					value: message.replaceAll("\"", "\\\""),
+				};
+			}
+		}
+
+		const updatedTarget = {
+			...targetStore,
+			entries: updatedEntries,
+		};
+
+		// SAVE to disk
+		await savePoFile(updatedTarget);
+
+		// update state
+		setTargetStore(updatedTarget);
+
+		// update UI entries
+		setEntries((prev) =>
+			prev.map((e) => ({
+				...e,
+				target:
+					e.target.trim() === ""
+						? json.find((je) => je.id === e.id)?.message.replaceAll("\"", "\\\"") ?? e.target
+						: e.target,
+			}))
+		);
+	};
+
 	return (
 		<div className="flex flex-col h-screen">
 			<div className="flex justify-between items-center border-b border-input px-4 py-2">
@@ -148,7 +200,40 @@ function RouteComponent() {
 					</h1>
 				</div>
 
-				<div>
+				<div className="flex flex-row gap-x-4">
+					<label
+						onDragOver={(e) => {
+							e.preventDefault();
+							setDragging(true);
+						}}
+						onDragLeave={() => setDragging(false)}
+						onDrop={(e) => {
+							e.preventDefault();
+							setDragging(false);
+							handleUpload(e.dataTransfer.files);
+						}}
+						className={`
+								flex flex-col items-center justify-center
+								w-full rounded-xl border-2 border-dashed
+								cursor-pointer transition
+								${dragging
+								? "border-purple-500 bg-purple-500/10"
+								: "border-accent bg-secondary/10 hover:bg-secondary/20"
+							}
+							`}
+					>
+						<input
+							type="file"
+							accept=".json"
+							onChange={(e) => handleUpload(e.target.files)}
+							className="hidden"
+						/>
+
+						<span className="text-sm text-gray-600">
+							{dragging ? "Drop file here" : "Import from JSON"}
+						</span>
+					</label>
+
 					<FieldLabel htmlFor="switch-show-all">
 						<Field orientation="horizontal">
 							<FieldContent>
@@ -231,6 +316,74 @@ function RouteComponent() {
 								}
 							}}
 						/>
+					</div>
+					<div className="flex justify-between items-center">
+						<Button
+							onClick={async () => {
+								if (inputRef.current?.value !== "" || inputRef.current?.value !== undefined) {
+									const value = inputRef.current?.value ?? "";
+									if (!value.trim()) return;
+
+									const updatedTarget = {
+										...targetStore,
+										entries: {
+											...targetStore.entries,
+											[current.id]: {
+												...targetStore.entries[current.id],
+												value,
+											},
+										},
+									};
+
+									await savePoFile(updatedTarget);
+									setTargetStore(updatedTarget);
+
+									// update entries (only data, NOT session)
+									const newEntries = entries.map((e) =>
+										e.id === current.id ? { ...e, target: value } : e,
+									);
+
+									setEntries(newEntries);
+								}
+								setIndex(prev => prev - 1 === -1 ? 0 : prev - 1);
+							}}
+						>
+							<ArrowLeft/>
+							PREVIOUS
+						</Button>
+						<Button
+							onClick={async () => {
+								if (inputRef.current?.value !== "" || inputRef.current?.value !== undefined) {
+									const value = inputRef.current?.value ?? "";
+									if (!value.trim()) return;
+
+									const updatedTarget = {
+										...targetStore,
+										entries: {
+											...targetStore.entries,
+											[current.id]: {
+												...targetStore.entries[current.id],
+												value,
+											},
+										},
+									};
+
+									await savePoFile(updatedTarget);
+									setTargetStore(updatedTarget);
+
+									// update entries (only data, NOT session)
+									const newEntries = entries.map((e) =>
+										e.id === current.id ? { ...e, target: value } : e,
+									);
+
+									setEntries(newEntries);
+								}
+								setIndex(prev => prev + 1 > visibleEntries.length ? prev : prev + 1);
+							}}
+						>
+							NEXT
+							<ArrowRight/>
+						</Button>
 					</div>
 				</div>
 			</div>

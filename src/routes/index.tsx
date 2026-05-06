@@ -24,6 +24,7 @@ import {
 	type PoFileStore,
 	parsePo,
 	savePoFile,
+	exportBatchedJson,
 } from "#/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -83,6 +84,15 @@ function Home() {
 			return;
 		}
 		downloadFile("messages.po", content);
+	};
+
+
+	const handleJsonDownload = async (language: string) => {
+		const content = await exportBatchedJson(language, 50);
+		if (content === null) {
+			return;
+		}
+		downloadFile("batched-messages.json", JSON.stringify(content));
 	};
 
 	const handleRemove = async (language: string) => {
@@ -323,6 +333,18 @@ function Home() {
 													<Download />
 												</Button>
 											</>
+										)}
+										{file.isSource && (
+											<Button
+												className="cursor-pointer text-background"
+												onClick={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													handleJsonDownload(file.language);
+												}}
+											>
+												<Download />
+											</Button>
 										)}
 
 										<Dialog

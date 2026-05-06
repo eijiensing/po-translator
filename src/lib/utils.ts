@@ -298,6 +298,25 @@ export async function exportPoFile(language: string) {
 	return `msgid ""\nmsgstr ""\n${headerBlock}\n\n${body}\n`;
 }
 
+export async function exportBatchedJson(language: string, batchSize: number) {
+	function chunkArray<T>(array: T[], size: number): T[][] {
+		const chunks: T[][] = [];
+
+		for (let i = 0; i < array.length; i += size) {
+			chunks.push(array.slice(i, i + size));
+		}
+
+		return chunks;
+	}
+	const store = await getPoFile(language);
+	if (!store) return null;
+
+	let items = Object.values(store.entries).map((entry) => { return { id: entry.id, message: entry.value } });
+	const batches = chunkArray(items, batchSize);
+
+	return batches;
+}
+
 export function downloadFile(filename: string, content: string) {
 	const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
 	const url = URL.createObjectURL(blob);
