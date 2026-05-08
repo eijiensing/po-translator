@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import clsx from "clsx";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import {
@@ -14,6 +14,7 @@ import { ScrollArea, ScrollBar } from "#/components/ui/scroll-area";
 import { Switch } from "#/components/ui/switch";
 import { Textarea } from "#/components/ui/textarea";
 import { loadAllPoFiles, savePoFile } from "#/lib/utils";
+import { compareMessages } from "#/lib/check-message";
 import { Button } from "#/components/ui/button";
 
 export const Route = createFileRoute("/translate/$language")({
@@ -67,7 +68,11 @@ function RouteComponent() {
 
 			// SESSION LIST (fixed at load time)
 			const untranslatedIds = merged
-				.filter((e) => e.target.trim() === "")
+				.filter((e) => {
+					if (e.target.trim() === "") return true;
+
+					return compareMessages(e.source, e.target).length > 0;
+				})
 				.map((e) => e.id);
 
 			setSessionIds(untranslatedIds);
@@ -125,9 +130,13 @@ function RouteComponent() {
 		setEntries(newEntries);
 
 		// find next untranslated in SESSION LIST
-		const nextIndex = visibleEntries.findIndex(
-			(e, i) => i > index && e.target.trim() === "",
-		);
+		const nextIndex = visibleEntries.findIndex((e, i) => {
+			if (i <= index) return false;
+
+			if (e.target.trim() === "") return true;
+
+			return compareMessages(e.source, e.target).length > 0;
+		});
 
 		if (nextIndex !== -1) {
 			setIndex(nextIndex);
@@ -182,6 +191,11 @@ function RouteComponent() {
 			}))
 		);
 	};
+
+	const currentProblems = compareMessages(
+		current.source,
+		current.target,
+	);
 
 	return (
 		<div className="flex flex-col h-screen">
@@ -251,7 +265,7 @@ function RouteComponent() {
 					</FieldLabel>
 				</div>
 			</div>
-			<div className="flex flex-row h-full">
+			<div className="flex flex-row flex-1 min-h-0">
 				<div className="w-64 border-r border-input overflow-y-auto">
 					<ScrollArea>
 						<ScrollBar orientation="vertical" />
@@ -259,13 +273,28 @@ function RouteComponent() {
 							{visibleEntries.map((e, i) => {
 								const isTranslated = e.target.trim() !== "";
 
+								const problems = isTranslated
+									? compareMessages(e.source, e.target)
+									: [];
+
+								const hasErrors = problems.length > 0;
+
 								return (
 									<div
 										key={e.id}
 										onClick={() => setIndex(i)}
 										className={clsx(
 											"p-2 cursor-pointer text-sm",
-											isTranslated ? "bg-lime-200" : "bg-red-200",
+
+											// untranslated
+											!isTranslated && "bg-red-200",
+
+											// translated but invalid
+											isTranslated && hasErrors && "bg-yellow-200",
+
+											// translated and valid
+											isTranslated && !hasErrors && "bg-lime-200",
+
 											i === index && "border-l-4 border-primary",
 										)}
 									>
@@ -280,8 +309,7 @@ function RouteComponent() {
 				</div>
 
 				{/* MAIN */}
-				<div className="flex-1 p-6 space-y-4">
-					{/* HEADER */}
+				<div className="flex-1 p-6 space-y-4 flex flex-col">
 					<div className="flex justify-between items-center">
 						<h1 className="text-lg font-semibold">
 							Message {index + 1}/{visibleEntries.length}
@@ -293,7 +321,7 @@ function RouteComponent() {
 						<p className="text-sm text-muted-foreground">
 							Source ({sourceStore.language})
 						</p>
-						<div className="rounded-lg border border-input p-4 bg-muted/50">
+						<div className="rounded-lg border border-input p-3 bg-muted/50 text-sm">
 							{current.source}
 						</div>
 					</div>
@@ -317,6 +345,28 @@ function RouteComponent() {
 							}}
 						/>
 					</div>
+					{currentProblems.length > 0 && (
+						<div className="rounded-lg border border-yellow-500 bg-yellow-500/10 p-3 space-y-2 text-yellow-800">
+							<div className="flex items-center gap-2">
+								<AlertCircle className="size-4" />
+								<p className="text-sm font-medium">
+									Translation issues detected
+								</p>
+							</div>
+
+							<ul className="space-y-1">
+								{currentProblems.map((problem, idx) => (
+									<li
+										key={`${problem.type}-${idx}`}
+										className="text-sm"
+									>
+										• {problem.message}
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+					<div className="flex flex-1" />
 					<div className="flex justify-between items-center">
 						<Button
 							onClick={async () => {
@@ -348,7 +398,7 @@ function RouteComponent() {
 								setIndex(prev => prev - 1 === -1 ? 0 : prev - 1);
 							}}
 						>
-							<ArrowLeft/>
+							<ArrowLeft />
 							PREVIOUS
 						</Button>
 						<Button
@@ -382,7 +432,7 @@ function RouteComponent() {
 							}}
 						>
 							NEXT
-							<ArrowRight/>
+							<ArrowRight />
 						</Button>
 					</div>
 				</div>

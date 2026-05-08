@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Download, X } from "lucide-react";
+import { Download, Ellipsis, FileBraces, FileType, FlagTriangleRight, Languages, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -26,6 +26,7 @@ import {
 	savePoFile,
 	exportBatchedJson,
 } from "#/lib/utils";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "#/components/ui/dropdown-menu";
 
 export const Route = createFileRoute("/")({
 	component: Home,
@@ -83,7 +84,7 @@ function Home() {
 		if (content === null) {
 			return;
 		}
-		downloadFile("messages.po", content);
+		downloadFile(`messages-${language}.po`, content);
 	};
 
 
@@ -226,7 +227,7 @@ function Home() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			<h1 className="text-3xl font-bold">Upload .po files</h1>
+			<h1 className="text-3xl font-bold">PO Translator</h1>
 
 			<div className="">
 				<label
@@ -272,120 +273,120 @@ function Home() {
 				<div className="space-y-4">
 					<h2 className="text-xl font-semibold">Uploaded files</h2>
 
-					<div className="space-y-2">
-						{files.map((file, i) => {
+					<div className="grid gap-y-2 grid-cols-1">
+						{files.sort((a) => a.isSource ? 0 : 1).map((file, i) => {
 							const calculationPercentage = Math.round(
 								(calculationResult ?? []).find(
 									(cr) => cr.language === file.language,
 								)?.percentage ?? 0,
 							);
 							return (
-								<Link
+								<div
 									key={i}
-									className={`pl-4 pr-2 py-2 rounded-lg border flex justify-between items-center ${file.isSource ? "" : "hover:border-primary duration-100"}`}
-									to={"/translate/$language"}
-									disabled={file.isSource}
-									params={{ language: file.language }}
+									className={`bg-secondary/10 border-secondary pr-2 rounded-lg border flex justify-between items-center ${file.isSource ? "" : "hover:bg-primary/10 hover:border-primary duration-100"}`}
 								>
-									<div className="flex flex-row gap-x-2 items-center">
-										<p className="font-bold">{file.language.toUpperCase()}</p>
+									<Link disabled={file.isSource} params={{ language: file.language }} to="/translate/$language" className="flex flex-row justify-between w-full py-2 pl-4 items-center">
+										<div className="flex flex-row gap-x-2 items-center">
+											<p className="font-bold">{file.language.toUpperCase()}</p>
+											{file.isSource && (
+												<Badge className="text-background">source</Badge>
+											)}
+										</div>
 
-										{file.isSource ? (
-											<Badge className="text-background">source</Badge>
-										) : (
-											<Button
-												className="text-xs px-2 py-1 cursor-pointer"
-												variant="ghost"
-												onClick={(e) => {
-													e.preventDefault();
-													e.stopPropagation();
-													markAsSource(file.language);
-												}}
-											>
-												Mark as source
-											</Button>
-										)}
-									</div>
-
-									<div className="flex flex-row gap-x-4 items-center">
 										{!file.isSource && sourceChosen && (
-											<>
-												<Field className="w-full max-w-sm gap-2">
-													<FieldLabel htmlFor="progress-translation">
-														<span>Translation percentage</span>
-														<span className="ml-auto">
-															{calculationPercentage}%
-														</span>
-													</FieldLabel>
-													<Progress
-														value={calculationPercentage}
-														id="progress-translation"
-													/>
-												</Field>
-												<Button
-													className="cursor-pointer text-background"
-													onClick={(e) => {
-														e.preventDefault();
-														e.stopPropagation();
-														handleDownload(file.language);
-													}}
-												>
-													<Download />
-												</Button>
-											</>
-										)}
-										{file.isSource && (
-											<Button
-												className="cursor-pointer text-background"
-												onClick={(e) => {
-													e.preventDefault();
-													e.stopPropagation();
-													handleJsonDownload(file.language);
-												}}
-											>
-												<Download />
-											</Button>
-										)}
+											<div className="flex items-center text-xs gap-x-4 relative">
+												<Progress
+													className="w-64 h-6 rounded-sm"
+													value={calculationPercentage}
+													id="progress-translation"
+												/>
+												<p className="absolute left-2 text-white">{calculationPercentage}% translated</p>
+											</div>
 
-										<Dialog
-											open={openedDialog === file.language}
-											onOpenChange={(v) =>
-												setOpenedDialog(v ? file.language : null)
-											}
-										>
-											<DialogTrigger asChild>
-												<Button
-													className="cursor-pointer"
-													variant="ghost"
+										)}
+									</Link>
+
+									<DropdownMenu>
+										<DropdownMenuTrigger asChild>
+											<Button className="ml-2 hover:bg-secondary" variant="ghost"><Ellipsis /></Button>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent>
+											<DropdownMenuGroup>
+												<Link params={{ language: file.language }} to="/translate/$language">
+													<DropdownMenuItem className="cursor-pointer">
+														<Languages className="w-4" />
+														Translate
+													</DropdownMenuItem>
+												</Link>
+												<DropdownMenuItem
 													onClick={(e) => {
 														e.preventDefault();
 														e.stopPropagation();
-														setOpenedDialog(file.language);
+														markAsSource(file.language);
 													}}
 												>
-													<X />
-												</Button>
-											</DialogTrigger>
-											<DialogContent onClick={(e) => e.stopPropagation()}>
-												<DialogHeader>
-													<DialogTitle>Are you sure?</DialogTitle>
-													<DialogDescription>
-														If you did not download the file all translation
-														progress will be lost!
-													</DialogDescription>
-												</DialogHeader>
-												<DialogFooter>
-													<DialogClose asChild>
-														<Button variant="outline">Cancel</Button>
-													</DialogClose>
-													<Button onClick={() => handleRemove(file.language)}>
-														Remove
-													</Button>
-												</DialogFooter>
-											</DialogContent>
-										</Dialog>
-									</div>
-								</Link>
+													<FlagTriangleRight />
+													Mark as source
+												</DropdownMenuItem>
+											</DropdownMenuGroup>
+											<DropdownMenuSub>
+												<DropdownMenuSubTrigger>
+													<Download />
+													Download
+												</DropdownMenuSubTrigger>
+												<DropdownMenuPortal>
+													<DropdownMenuSubContent>
+														<DropdownMenuItem
+															onClick={() => {
+																handleJsonDownload(file.language);
+															}}
+														>
+															<FileBraces />
+															Download batched JSON
+														</DropdownMenuItem>
+														<DropdownMenuItem
+															onClick={() => {
+																handleDownload(file.language);
+															}}
+														>
+															<FileType />
+															Export PO
+														</DropdownMenuItem>
+													</DropdownMenuSubContent>
+												</DropdownMenuPortal>
+											</DropdownMenuSub>
+											<DropdownMenuSeparator />
+											<Dialog>
+												<DropdownMenuGroup>
+													<DialogTrigger asChild>
+														<DropdownMenuItem variant="destructive"
+															onSelect={(e) => e.preventDefault()}
+														>
+															<X /> Delete
+														</DropdownMenuItem>
+													</DialogTrigger>
+												</DropdownMenuGroup>
+												<DialogContent className="border-gray-300">
+													<DialogHeader>
+														<DialogTitle>Are you sure?</DialogTitle>
+														<DialogDescription>
+															If you did not download the file all translation
+															progress will be lost!
+														</DialogDescription>
+													</DialogHeader>
+													<DialogFooter>
+														<DialogClose asChild>
+															<Button variant="outline">Cancel</Button>
+														</DialogClose>
+														<Button onClick={() => handleRemove(file.language)}>
+															Remove
+														</Button>
+													</DialogFooter>
+												</DialogContent>
+											</Dialog>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								</div>
 							);
 						})}
 					</div>
