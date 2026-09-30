@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Download, Ellipsis, FileBraces, FileType, FlagTriangleRight, Languages, X } from "lucide-react";
+import { ChevronDown, Download, Ellipsis, FileBraces, FileType, FlagTriangleRight, Languages, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -14,6 +14,7 @@ import {
 	DialogTrigger,
 } from "#/components/ui/dialog";
 import { Field, FieldLabel } from "#/components/ui/field";
+import { Input } from "#/components/ui/input";
 import { Progress } from "#/components/ui/progress";
 import {
 	deletePoFile,
@@ -25,8 +26,12 @@ import {
 	parsePo,
 	savePoFile,
 	exportBatchedJson,
+	DEFAULT_JSON_EXPORT_SETTINGS,
+	getJsonExportSettings,
+	saveJsonExportSettings,
+	type JsonExportFilter,
 } from "#/lib/utils";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "#/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "#/components/ui/dropdown-menu";
 
 export const Route = createFileRoute("/")({
 	component: Home,
@@ -43,6 +48,12 @@ type UploadState =
 	| { status: "review_conflicts"; conflicts: PoFileStore[]; newFiles: PoFileStore[] }
 	| { status: "saving" };
 
+const JSON_FILTER_LABELS: Record<JsonExportFilter, string> = {
+	everything: "Everything",
+	untranslated: "Untranslated",
+	untranslated_and_incorrect: "Untranslated + incorrectly translated",
+};
+
 function Home() {
 	const [files, setFiles] = useState<UploadedFile[]>([]);
 	const [calculationResult, setCalculationResult] = useState<ReturnType<
@@ -53,6 +64,15 @@ function Home() {
 	const [uploadState, setUploadState] = useState<UploadState>({
 		status: "idle",
 	});
+	const [jsonExportLanguage, setJsonExportLanguage] = useState<string | null>(
+		null,
+	);
+	const [jsonBatchSize, setJsonBatchSize] = useState(
+		String(DEFAULT_JSON_EXPORT_SETTINGS.batchSize),
+	);
+	const [jsonFilter, setJsonFilter] = useState<JsonExportFilter>(
+		DEFAULT_JSON_EXPORT_SETTINGS.filter,
+	);
 
 	const sourceChosen = files.some((f) => f.isSource);
 
@@ -74,6 +94,16 @@ function Home() {
 		load();
 	}, []);
 
+	useEffect(() => {
+		const loadSettings = async () => {
+			const settings = await getJsonExportSettings();
+			setJsonBatchSize(String(settings.batchSize));
+			setJsonFilter(settings.filter);
+		};
+
+		loadSettings();
+	}, []);
+
 	const recalculate = async () => {
 		const stores = await loadAllPoFiles();
 		setCalculationResult(getAllTranslationPercentages(stores));
@@ -88,12 +118,36 @@ function Home() {
 	};
 
 
-	const handleJsonDownload = async (language: string) => {
-		const content = await exportBatchedJson(language, 50);
-		if (content === null) {
-			return;
-		}
-		downloadFile("batched-messages.json", JSON.stringify(content));
+	const handleJsonExportOpen = async (language: string) => {
+		if (!sourceChosen) return;
+
+		const settings = await getJsonExportSettings();
+		setJsonBatchSize(String(settings.batchSize));
+		setJsonFilter(settings.filter);
+		setJsonExportLanguage(language);
+	};
+
+	const handleJsonDownload = async () => {
+		if (!jsonExportLanguage) return;
+
+		const batchSize = Math.max(1, Math.floor(Number(jsonBatchSize)) || 1);
+		const filter = jsonFilter;
+
+		await saveJsonExportSettings({ batchSize, filter });
+
+		const content = await exportBatchedJson(
+			jsonExportLanguage,
+			batchSize,
+			filter,
+		);
+		if (content === null) return;
+
+		downloadFile(
+			`batched-messages-${jsonExportLanguage}.json`,
+			JSON.stringify(content),
+		);
+
+		setJsonExportLanguage(null);
 	};
 
 	const handleRemove = async (language: string) => {
@@ -227,6 +281,76 @@ function Home() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			<Dialog
+				open={jsonExportLanguage !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setJsonExportLanguage(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Export batched JSON</DialogTitle>
+						<DialogDescription>
+							Choose the batch size and which messages to include.
+						</DialogDescription>
+					</DialogHeader>
+
+					<Field>
+						<FieldLabel htmlFor="json-batch-size">Batch size</FieldLabel>
+						<Input
+							id="json-batch-size"
+							type="number"
+							min={1}
+							value={jsonBatchSize}
+							onChange={(e) => {
+								setJsonBatchSize(e.target.value);
+							}}
+						/>
+					</Field>
+
+					<Field>
+						<FieldLabel>Include</FieldLabel>
+						<DropdownMenu modal={false}>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="outline"
+									className="justify-between"
+								>
+									{JSON_FILTER_LABELS[jsonFilter]}
+									<ChevronDown className="size-4 opacity-50" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start">
+								<DropdownMenuRadioGroup
+									value={jsonFilter}
+									onValueChange={(value) =>
+										setJsonFilter(value as JsonExportFilter)
+									}
+								>
+									<DropdownMenuRadioItem value="everything">
+										Everything
+									</DropdownMenuRadioItem>
+									<DropdownMenuRadioItem value="untranslated">
+										Untranslated
+									</DropdownMenuRadioItem>
+									<DropdownMenuRadioItem value="untranslated_and_incorrect">
+										Untranslated + incorrectly translated
+									</DropdownMenuRadioItem>
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</Field>
+
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button variant="outline">Cancel</Button>
+						</DialogClose>
+						<Button onClick={handleJsonDownload}>Download</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			<h1 className="text-3xl font-bold">PO Translator</h1>
 
 			<div className="">
@@ -337,8 +461,9 @@ function Home() {
 												<DropdownMenuPortal>
 													<DropdownMenuSubContent>
 														<DropdownMenuItem
+															disabled={!sourceChosen}
 															onClick={() => {
-																handleJsonDownload(file.language);
+																handleJsonExportOpen(file.language);
 															}}
 														>
 															<FileBraces />

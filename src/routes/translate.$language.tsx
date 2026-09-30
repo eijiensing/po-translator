@@ -1,6 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import clsx from "clsx";
-import { AlertCircle, ArrowLeft, ArrowRight } from "lucide-react";
+import {
+	AlertCircle,
+	ArrowLeft,
+	ArrowRight,
+	ClipboardPaste,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "#/components/ui/badge";
 import {
@@ -13,6 +18,16 @@ import {
 import { ScrollArea, ScrollBar } from "#/components/ui/scroll-area";
 import { Switch } from "#/components/ui/switch";
 import { Textarea } from "#/components/ui/textarea";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "#/components/ui/dialog";
 import { loadAllPoFiles, savePoFile } from "#/lib/utils";
 import { compareMessages } from "#/lib/check-message";
 import { Button } from "#/components/ui/button";
@@ -27,6 +42,17 @@ type Entry = {
 	target: string;
 };
 
+// Imported messages may fill an empty translation or replace one that is
+// flagged as incorrect. Correct translations are never overwritten.
+function shouldApplyImportedMessage(
+	sourceMessage: string,
+	existingMessage: string,
+): boolean {
+	if (!existingMessage.trim()) return true;
+
+	return compareMessages(sourceMessage, existingMessage).length > 0;
+}
+
 function RouteComponent() {
 	const { language } = Route.useParams();
 
@@ -35,6 +61,9 @@ function RouteComponent() {
 	const [sessionIds, setSessionIds] = useState<string[]>([]);
 	const [index, setIndex] = useState(0);
 	const [showAll, setShowAll] = useState(false);
+	const [pasteOpen, setPasteOpen] = useState(false);
+	const [pasteValue, setPasteValue] = useState("");
+	const [pasteError, setPasteError] = useState<string | null>(null);
 	const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
 	const [sourceStore, setSourceStore] = useState<any>(null);
@@ -98,10 +127,12 @@ function RouteComponent() {
 	}
 
 	if (!current) {
-		return <div className="p-8">
-			<p>No untranslated messages</p>
-			<Button onClick={() => setShowAll(true)}>Show all</Button>
-		</div>
+		return (
+			<div className="p-8">
+				<p>No untranslated messages</p>
+				<Button onClick={() => setShowAll(true)}>Show all</Button>
+			</div>
+		);
 	}
 
 	// SAVE + NEXT
@@ -145,26 +176,25 @@ function RouteComponent() {
 		}
 	};
 
-
-	const handleUpload = async (fileList: FileList | null) => {
-		if (!fileList) return;
-		const file = fileList[0];
-		if (!file) return;
-
-		const fileText = await file.text();
-		const json: { id: string; message: string }[] = JSON.parse(fileText);
-
+	const applyImportedJson = async (json: { id: string; message: string }[]) => {
 		// build updated entries map
 		const updatedEntries = { ...targetStore.entries };
 
 		for (const { id, message } of json) {
 			if (!message?.trim()) continue;
 
-			// only fill empty ones (same rule as before)
-			if (!updatedEntries[id]?.value?.trim()) {
+			const sourceMessage = sourceStore?.entries[id]?.value || id;
+
+			// fill empty ones, or replace translations flagged as incorrect
+			if (
+				shouldApplyImportedMessage(
+					sourceMessage,
+					updatedEntries[id]?.value ?? "",
+				)
+			) {
 				updatedEntries[id] = {
 					...updatedEntries[id],
-					value: message.replaceAll("\"", "\\\""),
+					value: message.replaceAll('"', '\\"'),
 				};
 			}
 		}
@@ -182,20 +212,54 @@ function RouteComponent() {
 
 		// update UI entries
 		setEntries((prev) =>
-			prev.map((e) => ({
-				...e,
-				target:
-					e.target.trim() === ""
-						? json.find((je) => je.id === e.id)?.message.replaceAll("\"", "\\\"") ?? e.target
-						: e.target,
-			}))
+			prev.map((e) => {
+				const imported = json.find((je) => je.id === e.id)?.message;
+				if (imported === undefined) return e;
+
+				if (!shouldApplyImportedMessage(e.source, e.target)) return e;
+
+				return { ...e, target: imported.replaceAll('"', '\\"') };
+			}),
 		);
 	};
 
-	const currentProblems = compareMessages(
-		current.source,
-		current.target,
-	);
+	const handleUpload = async (fileList: FileList | null) => {
+		if (!fileList) return;
+		const file = fileList[0];
+		if (!file) return;
+
+		const fileText = await file.text();
+		const json: { id: string; message: string }[] = JSON.parse(fileText);
+
+		await applyImportedJson(json);
+	};
+
+	const handlePasteImport = async () => {
+		setPasteError(null);
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(pasteValue);
+		} catch {
+			setPasteError("Invalid JSON.");
+			return;
+		}
+
+		if (!Array.isArray(parsed)) {
+			setPasteError("Expected a JSON array of { id, message } objects.");
+			return;
+		}
+
+		// Accept both a single batch (flat array) and the full batched export.
+		const json = parsed.flat(1) as { id: string; message: string }[];
+
+		await applyImportedJson(json);
+
+		setPasteValue("");
+		setPasteOpen(false);
+	};
+
+	const currentProblems = compareMessages(current.source, current.target);
 
 	return (
 		<div className="flex flex-col h-screen">
@@ -230,10 +294,11 @@ function RouteComponent() {
 								flex flex-col items-center justify-center
 								w-full rounded-xl border-2 border-dashed
 								cursor-pointer transition
-								${dragging
-								? "border-purple-500 bg-purple-500/10"
-								: "border-accent bg-secondary/10 hover:bg-secondary/20"
-							}
+								${
+									dragging
+										? "border-purple-500 bg-purple-500/10"
+										: "border-accent bg-secondary/10 hover:bg-secondary/20"
+								}
 							`}
 					>
 						<input
@@ -247,6 +312,55 @@ function RouteComponent() {
 							{dragging ? "Drop file here" : "Import from JSON"}
 						</span>
 					</label>
+
+					<Dialog
+						open={pasteOpen}
+						onOpenChange={(open) => {
+							setPasteOpen(open);
+							if (!open) {
+								setPasteError(null);
+							}
+						}}
+					>
+						<DialogTrigger asChild>
+							<Button variant="outline" className="h-auto">
+								<ClipboardPaste />
+								Paste JSON
+							</Button>
+						</DialogTrigger>
+						<DialogContent className="max-h-[85vh] overflow-y-auto">
+							<DialogHeader>
+								<DialogTitle>Paste JSON</DialogTitle>
+								<DialogDescription>
+									Paste an array of {"{ id, message }"} objects to import.
+								</DialogDescription>
+							</DialogHeader>
+
+							<Textarea
+								value={pasteValue}
+								onChange={(e) => setPasteValue(e.target.value)}
+								placeholder={'[{"id": "...", "message": "..."}]'}
+								spellCheck={false}
+								className="font-mono text-xs max-h-[50vh] overflow-y-auto resize-none"
+							/>
+
+							{pasteError && (
+								<p className="text-sm text-destructive">{pasteError}</p>
+							)}
+
+							<DialogFooter>
+								<DialogClose asChild>
+									<Button variant="outline">Cancel</Button>
+								</DialogClose>
+								<Button
+									onClick={handlePasteImport}
+									disabled={!pasteValue.trim()}
+								>
+									Import
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
 
 					<FieldLabel htmlFor="switch-show-all">
 						<Field orientation="horizontal">
@@ -356,10 +470,7 @@ function RouteComponent() {
 
 							<ul className="space-y-1">
 								{currentProblems.map((problem, idx) => (
-									<li
-										key={`${problem.type}-${idx}`}
-										className="text-sm"
-									>
+									<li key={`${problem.type}-${idx}`} className="text-sm">
 										• {problem.message}
 									</li>
 								))}
@@ -370,7 +481,10 @@ function RouteComponent() {
 					<div className="flex justify-between items-center">
 						<Button
 							onClick={async () => {
-								if (inputRef.current?.value !== "" || inputRef.current?.value !== undefined) {
+								if (
+									inputRef.current?.value !== "" ||
+									inputRef.current?.value !== undefined
+								) {
 									const value = inputRef.current?.value ?? "";
 									if (!value.trim()) return;
 
@@ -395,7 +509,7 @@ function RouteComponent() {
 
 									setEntries(newEntries);
 								}
-								setIndex(prev => prev - 1 === -1 ? 0 : prev - 1);
+								setIndex((prev) => (prev - 1 === -1 ? 0 : prev - 1));
 							}}
 						>
 							<ArrowLeft />
@@ -403,7 +517,10 @@ function RouteComponent() {
 						</Button>
 						<Button
 							onClick={async () => {
-								if (inputRef.current?.value !== "" || inputRef.current?.value !== undefined) {
+								if (
+									inputRef.current?.value !== "" ||
+									inputRef.current?.value !== undefined
+								) {
 									const value = inputRef.current?.value ?? "";
 									if (!value.trim()) return;
 
@@ -428,7 +545,9 @@ function RouteComponent() {
 
 									setEntries(newEntries);
 								}
-								setIndex(prev => prev + 1 > visibleEntries.length ? prev : prev + 1);
+								setIndex((prev) =>
+									prev + 1 > visibleEntries.length ? prev : prev + 1,
+								);
 							}}
 						>
 							NEXT

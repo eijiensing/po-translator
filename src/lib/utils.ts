@@ -2,6 +2,7 @@ import type { ClassValue } from "clsx";
 import { clsx } from "clsx";
 import { get, set, del } from "idb-keyval";
 import { twMerge } from "tailwind-merge";
+import { compareMessages } from "#/lib/check-message";
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -298,7 +299,40 @@ export async function exportPoFile(language: string) {
 	return `msgid ""\nmsgstr ""\n${headerBlock}\n\n${body}\n`;
 }
 
-export async function exportBatchedJson(language: string, batchSize: number) {
+export type JsonExportFilter =
+	| "everything"
+	| "untranslated"
+	| "untranslated_and_incorrect";
+
+export type JsonExportSettings = {
+	batchSize: number;
+	filter: JsonExportFilter;
+};
+
+export const DEFAULT_JSON_EXPORT_SETTINGS: JsonExportSettings = {
+	batchSize: 50,
+	filter: "everything",
+};
+
+const JSON_EXPORT_SETTINGS_KEY = "po:json-export-settings";
+
+export const getJsonExportSettings = async (): Promise<JsonExportSettings> => {
+	const stored = await get<Partial<JsonExportSettings>>(
+		JSON_EXPORT_SETTINGS_KEY,
+	);
+
+	return { ...DEFAULT_JSON_EXPORT_SETTINGS, ...stored };
+};
+
+export const saveJsonExportSettings = async (settings: JsonExportSettings) => {
+	await set(JSON_EXPORT_SETTINGS_KEY, settings);
+};
+
+export async function exportBatchedJson(
+	language: string,
+	batchSize: number,
+	filter: JsonExportFilter = "everything",
+) {
 	function chunkArray<T>(array: T[], size: number): T[][] {
 		const chunks: T[][] = [];
 
@@ -311,8 +345,37 @@ export async function exportBatchedJson(language: string, batchSize: number) {
 	const store = await getPoFile(language);
 	if (!store) return null;
 
-	let items = Object.values(store.entries).map((entry) => { return { id: entry.id, message: entry.value } });
-	const batches = chunkArray(items, batchSize);
+	const source = (await loadAllPoFiles()).find((f) => f.isSource);
+	if (!source) return null;
+
+	const entries = Object.values(store.entries).map((entry) => ({
+		id: entry.id,
+		sourceMessage: source.entries[entry.id]?.value || entry.id,
+		target: entry.value,
+	}));
+
+	let filtered = entries;
+
+	if (filter !== "everything") {
+		filtered = entries.filter((entry) => {
+			// Untranslated entries are always included.
+			if (!entry.target.trim()) return true;
+
+			if (filter === "untranslated") return false;
+
+			// "untranslated_and_incorrect": also include translations with issues.
+			return compareMessages(entry.sourceMessage, entry.target).length > 0;
+		});
+	}
+
+	// The message is the source text, since the target is what gets translated.
+	const items = filtered.map((entry) => ({
+		id: entry.id,
+		message: entry.sourceMessage,
+	}));
+
+	const size = Math.max(1, Math.floor(batchSize) || 1);
+	const batches = chunkArray(items, size);
 
 	return batches;
 }
